@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# 运行时数据
+chroma_db/
+logs/
+md5.text
+
+# 测试 & 静态检查
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 环境变量（绝对不能提交）
+.env
+.env.local
+.env.prod

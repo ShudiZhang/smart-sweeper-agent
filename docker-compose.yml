@@ -1,0 +1,34 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: smart-sweeper-agent:latest
+    container_name: smart-sweeper
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - AMAP_API_KEY=${AMAP_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+    volumes:
+      # 持久化向量数据库
+      - ./chroma_db:/app/chroma_db
+      # 持久化日志
+      - ./logs:/app/logs
+      # 持久化 MD5 去重记录
+      - ./md5.text:/app/md5.text
+      # 知识库数据（只读，避免容器内误改）
+      - ./data:/app/data:ro
+      # 提示词模板（只读）
+      - ./prompts:/app/prompts:ro
+      # 配置文件（只读）
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
