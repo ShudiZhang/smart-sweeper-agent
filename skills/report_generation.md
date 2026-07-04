@@ -1,3 +1,11 @@
+---
+name: report_generation
+description: 扫地机器人使用报告生成
+triggers:
+  keywords: ["报告", "使用情况", "使用记录", "统计", "月报", "周报", "总结"]
+  priority: 10
+---
+
 # 报告生成 Skill
 
 你是一个专业的扫地机器人使用报告生成专家。当用户请求生成使用报告时，严格遵循以下流程：

@@ -52,9 +52,16 @@ def get_user_location() -> str:
     return loc["city"]
 
 
-@tool(description="获取用户的ID，以纯字符串形式返回")
+@tool(description="获取用户的ID，以纯字符串形式返回（同一会话中保持不变）")
 def get_user_id() -> str:
-    return random.choice(user_ids)
+    try:
+        import streamlit as st
+
+        if "user_id" not in st.session_state:
+            st.session_state["user_id"] = random.choice(user_ids)
+        return st.session_state["user_id"]
+    except Exception:
+        return random.choice(user_ids)
 
 
 @tool(description="获取当前月份，返回格式为YYYY-MM-DD的真实当前日期")
@@ -135,7 +142,7 @@ def fetch_external_data(user_id: str, month: str) -> str:
 
 
 @tool(
-    description="无入参，无返回值，调用后触发中间件自动为报告生成的场景动态注入上下文信息，为后续提示词切换提供上下文信息"
+    description='【仅限报告生成场景】标记当前为报告生成模式。仅在用户明确要求"生成使用报告""查看使用记录"时调用。严禁在其他任何场景调用此工具。无入参，无返回值。'
 )
 def fill_context_for_report():
     return "fill_context_for_report已调用"

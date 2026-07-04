@@ -1,11 +1,12 @@
 """
-Agent 整合示例：MCP 工具 + Skill 模板 + 内置工具
-展示如何将三者结合起来使用
+Agent 整合：MCP 工具 + Skill 模板 + 内置工具
+基于 langgraph 1.0 create_react_agent，极简配置
 """
 
-from langchain.agents import create_agent
+from __future__ import annotations
 
-from agent.middleware import log_before_model, monitor_tool, report_prompt_switch
+from langgraph.prebuilt import create_react_agent
+
 from agent.tools.agent_tools import (
     fetch_external_data,
     fill_context_for_report,
@@ -17,72 +18,62 @@ from agent.tools.agent_tools import (
 )
 from model.factory import chat_model
 from utils.prompt_loader import load_system_prompts
-from utils.skill_loader import inject_skill
 
 
 class SmartAgent:
-    """
-    智能 Agent：
-    - 内置工具：rag_summarize, fetch_external_data, get_user_id, get_current_month,
-      get_user_location, get_weather
-    - MCP 工具：amap_ip_location, amap_weather（通过 MCP 协议连接高德服务）
-    - Skill 模板：report_generation, troubleshooting
-    """
+    """智能 Agent"""
 
-    def __init__(self, mcp_tools: list | None = None, active_skill: str | None = None):
-        # 内置工具
-        builtin_tools = [
+    def __init__(
+        self,
+        mcp_tools: list | None = None,
+        active_skill: str | None = None,
+        auto_match_skill: bool = True,
+    ):
+        tools = [
             rag_summarize,
+            get_weather,
+            get_user_location,
             get_user_id,
             get_current_month,
-            get_user_location,
-            get_weather,
             fetch_external_data,
             fill_context_for_report,
-        ]
+        ] + (mcp_tools or [])
 
-        # 合并 MCP 工具（如果有）
-        all_tools = builtin_tools + (mcp_tools or [])
-
-        # 加载系统提示词
-        system_prompt = load_system_prompts()
-
-        # 注入 Skill 模板
+        prompt = load_system_prompts()
         if active_skill:
-            system_prompt = inject_skill(system_prompt, active_skill)
+            from utils.skill_loader import inject_skill
 
-        self.agent = create_agent(
+            prompt = inject_skill(prompt, active_skill)
+
+        self.agent = create_react_agent(
             model=chat_model,
-            system_prompt=system_prompt,
-            tools=all_tools,
-            middleware=[monitor_tool, log_before_model, report_prompt_switch],
+            tools=tools,
+            prompt=prompt,
         )
 
     def execute_stream(self, query: str):
-        input_dict = {"messages": [{"role": "user", "content": query}]}
+        state = {"messages": [{"role": "user", "content": query}]}
         for chunk in self.agent.stream(
-            input_dict, stream_mode="values", context={"report": False}
+            state, stream_mode="updates", config={"recursion_limit": 25}
         ):
-            latest_message = chunk["messages"][-1]
-            if latest_message.content:
-                yield latest_message.content.strip() + "\n"
+            # stream_mode="updates" 只返回每个节点的增量
+            # 过滤：只输出最终的 AI 回复（不含 tool_calls 的 AIMessage）
+            for node_output in chunk.values():
+                if not isinstance(node_output, dict):
+                    continue
+                messages = node_output.get("messages", [])
+                for msg in messages if isinstance(messages, list) else [messages]:
+                    # 跳过 ToolMessage 和有 tool_calls 的 AIMessage（思考过程）
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        continue
+                    if getattr(msg, "type", None) == "tool":
+                        continue
+                    content = getattr(msg, "content", "")
+                    if content:
+                        yield content.strip() + "\n"
 
-
-# ---- 使用示例 ----
 
 if __name__ == "__main__":
-    """
-    方式一：纯内置工具（当前模式）
-    agent = SmartAgent()
-
-    方式二：连接 MCP Server
-    from langchain_mcp import load_mcp_tools
-    mcp_tools = load_mcp_tools("python mcp_servers/amap_server.py")
-    agent = SmartAgent(mcp_tools=mcp_tools)
-
-    方式三：激活特定 Skill
-    agent = SmartAgent(active_skill="report_generation")
-    """
     agent = SmartAgent()
     for chunk in agent.execute_stream("帮我看看今天深圳天气怎么样"):
         print(chunk, end="", flush=True)

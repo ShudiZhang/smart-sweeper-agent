@@ -1,6 +1,5 @@
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 
-from agent.middleware import log_before_model, monitor_tool, report_prompt_switch
 from agent.tools.agent_tools import (
     fetch_external_data,
     fill_context_for_report,
@@ -16,9 +15,8 @@ from utils.prompt_loader import load_system_prompts
 
 class ReactAgent:
     def __init__(self):
-        self.agent = create_agent(
+        self.agent = create_react_agent(
             model=chat_model,
-            system_prompt=load_system_prompts(),
             tools=[
                 rag_summarize,
                 get_weather,
@@ -28,23 +26,26 @@ class ReactAgent:
                 fetch_external_data,
                 fill_context_for_report,
             ],
-            middleware=[monitor_tool, log_before_model, report_prompt_switch],
+            prompt=load_system_prompts(),
         )
 
     def execute_stream(self, query: str):
-        input_dict = {
-            "messages": [
-                {"role": "user", "content": query},
-            ]
-        }
-
-        # 第三个参数context就是上下文runtime中的信息，就是我们做提示词切换的标记
+        state = {"messages": [{"role": "user", "content": query}]}
         for chunk in self.agent.stream(
-            input_dict, stream_mode="values", context={"report": False}
+            state, stream_mode="updates", config={"recursion_limit": 25}
         ):
-            latest_message = chunk["messages"][-1]
-            if latest_message.content:
-                yield latest_message.content.strip() + "\n"
+            for node_output in chunk.values():
+                if not isinstance(node_output, dict):
+                    continue
+                messages = node_output.get("messages", [])
+                for msg in messages if isinstance(messages, list) else [messages]:
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        continue
+                    if getattr(msg, "type", None) == "tool":
+                        continue
+                    content = getattr(msg, "content", "")
+                    if content:
+                        yield content.strip() + "\n"
 
 
 if __name__ == "__main__":
