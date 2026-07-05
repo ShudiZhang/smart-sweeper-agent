@@ -2,14 +2,17 @@
 
 > demo来源黑马程序员
 
-基于 **RAG + ReAct Agent** 架构的扫地/扫拖一体机器人智能客服系统。使用通义千问（DashScope）作为底层模型，结合 Chroma 向量知识库、工具调用与 Skill 模板，为用户提供产品咨询、故障排查、选购推荐、使用报告生成等服务。
+基于 **RAG + ReAct Agent + Multi-Agent 协作** 架构的扫地/扫拖一体机器人智能客服系统。使用通义千问（DashScope）作为底层模型，结合 Chroma 向量知识库、工具调用与 Skill 模板，支持**单 Agent / 多 Agent 协作两种模式**一键切换，为用户提供产品咨询、故障排查、选购推荐、使用报告生成等服务。
 
 ## ✨ 核心特性
 
+- **多 Agent 协作**：Supervisor-Worker 架构，自动识别用户意图并路由到 4 个专业 Agent（故障排查/选购推荐/报告生成/通用问答），每 Worker 独立工具集
+- **单 Agent 模式**：传统 ReAct Agent，统一管理全部工具与 Skill，适合简单问答
 - **RAG 知识库问答**：基于 Chroma 向量数据库，从专业知识库中精准检索并生成回答
-- **ReAct Agent**：基于 LangGraph `create_react_agent`，自动判断并调用合适的工具
 - **Skill 自动匹配**：关键词匹配，4 个技能模板（故障排查、选购指南、配件推荐、报告生成）
 - **MCP 工具扩展**：通过 MCP 协议接入高德地图（IP 定位 + 天气查询）
+- **对话持久化**：基于 Chroma 的会话存储，支持软删除、多用户 token 隔离、历史会话浏览与切换
+- **多轮上下文**：Agent 感知完整对话历史，追问时不再"失忆"
 - **使用报告生成**：多步骤工具链（获取 ID → 月份 → 使用记录），生成结构化月度报告
 - **中间件系统**：`pre_model_hook` 日志 + 自动 Skill 匹配、动态提示词切换、工具调用次数限制
 - **流式输出**：Streamlit 流式输出，仅展示最终回答，隐藏中间思考过程
@@ -20,36 +23,45 @@
 ```mermaid
 graph TD
     A[用户] --> B[Streamlit Web UI]
-    B --> C[SmartAgent]
-    C --> D[create_react_agent]
-    D --> E[Middleware 中间件]
-    E --> F[pre_model_hook<br/>日志 + Skill自动匹配]
-    E --> G[动态提示词<br/>report模式切换]
-    D --> H[工具层]
-    H --> I[rag_summarize<br/>RAG 知识检索]
-    H --> J[get_weather / get_user_location<br/>高德天气定位]
-    H --> K[fetch_external_data<br/>用户使用记录]
-    H --> L[fill_context_for_report<br/>报告模式触发]
-    I --> M[Chroma 向量库]
-    M --> N[知识库文档]
-    J --> O[高德 API]
-    K --> P[records.csv]
-    C --> Q[Skill 自动匹配]
-    Q --> R[4 个 Skill 模板]
+    B --> C{Agent 模式}
+    C -->|多 Agent| D[MultiAgentOrchestrator]
+    C -->|单 Agent| E[SmartAgent]
+    D --> F[Supervisor<br/>意图分类+路由]
+    F --> G1[Troubleshooting Worker<br/>故障排查 + RAG]
+    F --> G2[Purchase Worker<br/>选购推荐 + RAG]
+    F --> G3[Report Worker<br/>报告生成 + 数据工具]
+    F --> G4[General Worker<br/>通用问答 + 天气定位]
+    E --> H[create_react_agent]
+    H --> I[Middleware 中间件]
+    I --> J[pre_model_hook<br/>日志 + Skill自动匹配]
+    I --> K[动态提示词<br/>report模式切换]
+    G1 & G2 & G3 & G4 & H --> L[工具层]
+    L --> M[rag_summarize<br/>RAG 知识检索]
+    L --> N[get_weather / get_user_location<br/>高德天气定位]
+    L --> O[fetch_external_data<br/>用户使用记录]
+    L --> P[fill_context_for_report<br/>报告模式触发]
+    M --> Q[Chroma 向量库]
+    Q --> R[知识库文档]
+    Q --> S[对话历史存储]
+    N --> T[高德 API]
+    O --> U[records.csv]
+    B --> V[ConversationStore<br/>会话持久化/历史面板]
+    V --> Q
 ```
 
 ## 📁 项目结构
 
 ```
 smart_sweeper_agent/
-├── app.py                       # Streamlit 入口
+├── app.py                       # Streamlit 入口（单/多 Agent 切换）
 ├── test_features.py             # 功能效果测试
 ├── verify_all.py                # 全功能验证
 ├── pyproject.toml               # 项目依赖与配置
 ├── Dockerfile / docker-compose.yml
 ├── agent/
-│   ├── smart_agent.py           # SmartAgent 主类（MCP + Skill + 内置工具）
+│   ├── smart_agent.py           # SmartAgent（单 Agent 模式）
 │   ├── react_agent.py           # ReactAgent（纯内置工具版）
+│   ├── multi_agent.py           # MultiAgentOrchestrator（多 Agent 协作）
 │   ├── middleware.py             # 中间件：pre_model_hook、提示词构建、工具包装
 │   └── tools/
 │       └── agent_tools.py       # 7 个内置工具定义
@@ -85,6 +97,7 @@ smart_sweeper_agent/
 ├── utils/
 │   ├── amap_client.py           # 高德 API 客户端
 │   ├── config_handler.py        # 配置管理（Pydantic）
+│   ├── conversation_store.py    # 对话持久化（Chroma 存储/软删除/隔离）
 │   ├── file_handler.py          # 文件处理（TXT/PDF）
 │   ├── logger_handler.py        # 日志处理
 │   ├── path_tool.py             # 路径工具
@@ -101,6 +114,41 @@ smart_sweeper_agent/
     ├── test_path_tool.py         # 路径工具测试
     └── test_rag_integration.py   # RAG 集成测试
 ```
+
+## 🧠 Agent 模式
+
+侧边栏支持两种模式一键切换：
+
+### 单 Agent 模式（默认）
+
+一个 Agent 管理所有工具与 Skill，适合简单问答。基于 LangGraph `create_react_agent`，自动判断并调用合适的工具。
+
+### 多 Agent 协作模式（Supervisor-Worker）
+
+| Worker | 职责 | 专属工具 |
+|--------|------|---------|
+| `troubleshooting` | 故障排查专家 | RAG 检索 |
+| `purchase` | 选购顾问 | RAG 检索 |
+| `report` | 报告生成专家 | 用户ID、月份、使用记录、报告触发 |
+| `general` | 通用助手 | RAG 检索、天气、定位、用户ID |
+
+Supervisor 通过 LLM 意图分类自动路由到对应 Worker，Worker 独立执行 ReAct 推理，互不干扰。
+
+## 💬 对话持久化
+
+基于 Chroma 的会话存储系统：
+
+| 功能 | 说明 |
+|------|------|
+| **自动保存** | 每轮对话增量写入 Chroma，刷新/重启不丢失 |
+| **软删除** | 删除会话仅标记 `deleted=True`，数据可恢复 |
+| **多用户隔离** | 每个浏览器 Tab 生成唯一 `user_token`，对话互不可见 |
+| **历史面板** | 侧边栏可浏览、切换、删除历史会话 |
+| **多轮上下文** | Agent 感知完整对话历史，追问更智能 |
+
+### 存储结构
+
+历史对话存储在 `chroma_db/` 的 `conversation_history` collection 中，与知识库 `agent` collection 互不干扰。每条消息包含 metadata：`session_id`、`user_token`、`role`、`index`、`timestamp`、`deleted`。
 
 ## 🚀 快速开始
 
