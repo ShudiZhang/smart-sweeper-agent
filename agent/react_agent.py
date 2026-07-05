@@ -29,8 +29,14 @@ class ReactAgent:
             prompt=load_system_prompts(),
         )
 
-    def execute_stream(self, query: str):
-        state = {"messages": [{"role": "user", "content": query}]}
+    def execute_stream(self, query: str, history: list[dict] | None = None):
+        # 构建完整上下文消息
+        messages = []
+        if history:
+            for msg in history:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": query})
+        state = {"messages": messages}
         for chunk in self.agent.stream(
             state, stream_mode="updates", config={"recursion_limit": 25}
         ):
