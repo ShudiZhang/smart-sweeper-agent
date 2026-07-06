@@ -228,6 +228,54 @@ def print_full_report(result: dict):
 
 
 # ============================================================
+# RAG 质量评估模式（LLM-as-Judge）
+# ============================================================
+
+
+def eval_rag_quality(dataset: list[dict], limit: int = 0) -> None:
+    """RAG 质量评估：忠实度 + 相关性 + 检索精度
+    仅评估 expected_tools 中包含 rag_summarize 的用例
+    """
+    from tests.eval_metrics import EvalReport, get_evaluator
+    from rag.rag_service import RagSummarizeService
+
+    evaluator = get_evaluator()
+    rag = RagSummarizeService()
+
+    # 只评估需要 RAG 的用例
+    rag_cases = [c for c in dataset if "rag_summarize" in c.get("expected_tools", [])]
+    skipped = len(dataset) - len(rag_cases)
+    if skipped:
+        print(f"⏭️  跳过 {skipped} 条非 RAG 用例（闲聊/天气等）\n")
+
+    cases = rag_cases[:limit] if limit > 0 else rag_cases
+    report = EvalReport()
+
+    start = time.time()
+
+    for i, case in enumerate(cases):
+        qid = case["id"]
+        question = case["question"]
+        print(f"  [{i+1}/{len(cases)}] {qid}: {question[:40]}...", end=" ", flush=True)
+
+        answer = rag.rag_summarize(question)
+        context_docs = rag.enhanced_retrieve(question)
+        scores = evaluator.evaluate(question, answer, context_docs)
+        report.scores.append(scores)
+
+        print(f"综合={scores.overall:.2f} {scores.grade}")
+
+    report.total_time = time.time() - start
+    report.print_summary()
+
+    print(f"\n📋 明细:")
+    for s in report.scores:
+        print(
+            f"  {s.grade} | F={s.faithfulness:.2f} R={s.relevancy:.2f} P={s.context_precision:.2f} | {s.question[:50]}"
+        )
+
+
+# ============================================================
 # 主入口
 # ============================================================
 
@@ -238,6 +286,9 @@ def main():
         "--quick", action="store_true", help="快速模式（仅 Skill 匹配）"
     )
     parser.add_argument("--full", action="store_true", help="完整模式（含工具调用）")
+    parser.add_argument(
+        "--rag", action="store_true", help="RAG质量评估（忠实度+相关性+检索精度）"
+    )
     parser.add_argument("--id", type=str, help="测试单条用例")
     parser.add_argument("--limit", type=int, default=0, help="限制用例数量")
     args = parser.parse_args()
@@ -247,27 +298,22 @@ def main():
     print(f"📋 加载测评集: {len(dataset)} 条用例\n")
 
     if args.id:
-        # 单条测试
         case = next((c for c in dataset if c["id"] == args.id), None)
         if not case:
             print(f"错误：未找到用例 {args.id}")
             return
-        print(f"🧪 单条测试: [{case['id']}] {case['category']}")
-        result = eval_full([case])
-        print_full_report(result)
-        return
+        dataset = [case]
 
-    if args.full:
-        # 完整模式
+    if args.rag:
+        print("🧪 RAG 质量评估模式（LLM-as-Judge）\n")
+        eval_rag_quality(dataset, args.limit)
+    elif args.full:
         print("🔬 完整测评模式（将调用 LLM，产生 API 费用）")
         result = eval_full(dataset, limit=args.limit)
-
-        # 也跑快速 Skill 匹配
         quick_result = eval_skill_matching(dataset)
         print_quick_report(quick_result)
         print_full_report(result)
     else:
-        # 默认快速模式
         result = eval_skill_matching(dataset)
         print_quick_report(result)
 

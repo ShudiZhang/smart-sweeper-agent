@@ -6,18 +6,21 @@
   question: "机器人开机后一直滴滴响，也不动了，怎么办？"
   expected_skill: "troubleshooting"
   expected_tools: ["rag_summarize"]
+  reference_answer: "请检查尘盒是否安装到位、滤网是否需要清理，重启机器人后再试。"
 
 - id: "eval_002"
   category: "故障排除"
   question: "我的扫地机连不上WiFi了，试了好几次都不行"
   expected_skill: "troubleshooting"
   expected_tools: ["rag_summarize"]
+  reference_answer: "请确认路由器2.4G频段已开启，机器人距离路由器不要太远，尝试重置网络后重新配网。"
 
 - id: "eval_003"
   category: "故障排除"
   question: "机器人吸力变小了很多，扫不干净"
   expected_skill: "troubleshooting"
   expected_tools: ["rag_summarize"]
+  reference_answer: "请清理尘盒和滤网，检查滚刷是否被毛发缠绕，确认吸口没有被堵塞。"
 
 - id: "eval_004"
   category: "故障排除"
