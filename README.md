@@ -49,72 +49,6 @@ graph TD
     V --> Q
 ```
 
-## 📁 项目结构
-
-```
-smart_sweeper_agent/
-├── app.py                       # Streamlit 入口（单/多 Agent 切换）
-├── test_features.py             # 功能效果测试
-├── verify_all.py                # 全功能验证
-├── pyproject.toml               # 项目依赖与配置
-├── Dockerfile / docker-compose.yml
-├── agent/
-│   ├── smart_agent.py           # SmartAgent（单 Agent 模式）
-│   ├── react_agent.py           # ReactAgent（纯内置工具版）
-│   ├── multi_agent.py           # MultiAgentOrchestrator（多 Agent 协作）
-│   ├── middleware.py             # 中间件：pre_model_hook、提示词构建、工具包装
-│   └── tools/
-│       └── agent_tools.py       # 7 个内置工具定义
-├── config/
-│   ├── agent.yml                # Agent 参数配置
-│   ├── chroma.yml               # Chroma 向量库配置
-│   ├── prompts.yml              # 提示词路径配置
-│   └── rag.yml                  # RAG 模型配置
-├── data/
-│   ├── 扫地机器人100问2.txt      # 通用 FAQ
-│   ├── 扫拖一体机器人100问.txt   # 扫拖一体 FAQ
-│   ├── 故障排除.txt              # 故障排查知识库
-│   ├── 维护保养.txt              # 维护保养知识库
-│   ├── 选购指南.txt              # 选购知识库
-│   └── external/
-│       └── records.csv          # 用户月度使用记录
-├── mcp_servers/
-│   └── amap_server.py           # 高德地图 MCP Server
-├── model/
-│   └── factory.py               # 模型工厂（DashScope 对话/嵌入）
-├── prompts/
-│   ├── main_prompt.txt          # 主系统提示词
-│   ├── rag_summarize.txt        # RAG 总结提示词
-│   └── report_prompt.txt        # 报告生成提示词
-├── rag/
-│   ├── rag_service.py           # RAG 总结服务
-│   └── vector_store.py          # Chroma 向量库服务
-├── skills/
-│   ├── troubleshooting.md       # 故障排查 Skill
-│   ├── purchase_guide.md        # 选购指南 Skill
-│   ├── accessory_recommend.md   # 配件推荐 Skill
-│   └── report_generation.md     # 报告生成 Skill
-├── utils/
-│   ├── amap_client.py           # 高德 API 客户端
-│   ├── config_handler.py        # 配置管理（Pydantic）
-│   ├── conversation_store.py    # 对话持久化（Chroma 存储/软删除/隔离）
-│   ├── file_handler.py          # 文件处理（TXT/PDF）
-│   ├── logger_handler.py        # 日志处理
-│   ├── path_tool.py             # 路径工具
-│   ├── prompt_loader.py         # 提示词加载器
-│   ├── skill_loader.py          # Skill 加载器（YAML frontmatter + 自动匹配）
-│   └── tracing.py               # LangSmith 追踪
-└── tests/
-    ├── eval_dataset.yml          # 测评数据集
-    ├── run_eval.py               # 测评脚本
-    ├── conftest.py               # pytest 配置
-    ├── test_amap_client.py       # 高德客户端测试
-    ├── test_config_handler.py    # 配置管理测试
-    ├── test_file_handler.py      # 文件处理测试
-    ├── test_path_tool.py         # 路径工具测试
-    └── test_rag_integration.py   # RAG 集成测试
-```
-
 ## 🧠 Agent 模式
 
 侧边栏支持两种模式一键切换：
@@ -246,27 +180,162 @@ triggers:
 # 技能正文...
 ```
 
-## 🧪 测试与测评
+## 🧪 测试与评估
+
+三种测评模式，覆盖不同维度：
 
 ```bash
-# 全功能验证（不调 LLM，零成本）
-uv run python verify_all.py
-
-# 逐功能效果测试（调用 LLM）
-uv run python test_features.py 1    # 故障排查
-uv run python test_features.py 2    # 选购指南
-uv run python test_features.py all  # 全部
-
-# Skill 匹配准确率测评
+# 快速模式 — Skill 匹配准确率（不调 LLM，零成本）
 uv run python tests/run_eval.py --quick
 
-# 完整测评（Skill + 工具调用）
+# 完整模式 — Skill + 工具调用（调 LLM）
 uv run python tests/run_eval.py --full --limit 5
 
+# RAG 质量评估 — Faithfulness + Relevancy + Precision（LLM-as-Judge）
+uv run python tests/run_eval.py --rag
+
+# 单条测试
+uv run python tests/run_eval.py --rag --id eval_001
+
+# 全功能验证
+uv run python verify_all.py
+
 # 单元测试
-uv sync --dev
-uv run pytest
-uv run pytest --cov=. --cov-report=term
+uv run pytest tests/
+```
+
+## 🛡️ 安全护栏（Guardrails）
+
+三级防护体系，覆盖所有入口（Streamlit / FastAPI / RAG 管线）：
+
+| 层级 | 检测内容 | 动作 |
+|------|---------|------|
+| **输入护栏** | Prompt 注入（中英文 13 种正则模式） | 🚫 BLOCK |
+| | 系统提示词泄露/角色劫持/DAN 越狱 | 🚫 BLOCK |
+| | 敏感话题（上下文感知，不误伤设备问题） | 🚫 BLOCK |
+| | 空输入/超长输入（>2000字符） | 🚫 BLOCK |
+| **输出护栏** | 空回答/异常短回答 | 🚫 BLOCK |
+| | 事实一致性校验（LLM 对比 RAG 上下文打分） | ⚠️ WARN + 免责声明 |
+
+测试：
+
+```bash
+uv run python utils/guardrails.py
+```
+
+## 🚀 FastAPI 服务化
+
+生产级 REST API，将 Agent 能力封装为 HTTP 服务：
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/` | GET | 重定向到 Swagger 文档 |
+| `/health` | GET | 健康检查 |
+| `/chat` | POST | 非流式对话 |
+| `/chat/stream` | POST | SSE 流式对话 |
+| `/sessions` | GET | 历史会话列表 |
+| `/sessions/{id}` | GET | 会话详情 |
+| `/sessions/{id}` | DELETE | 软删除会话 |
+
+```bash
+# 启动
+uv run uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+
+# 交互式文档
+open http://localhost:8000/docs
+
+# curl 测试
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query":"小户型推荐哪款","mode":"multi"}'
+```
+
+## 🔬 RAG 增强检索管线
+
+原始查询 → **Query Rewriting**（LLM 改写）→ **多召回**（3×K 候选）→ **LLM Rerank**（打分精选 Top-K）→ 总结回答
+
+| 组件 | 文件 | 作用 |
+|------|------|------|
+| Query Rewriter | `rag/query_rewriter.py` | LLM 将口语化问题改写为检索友好查询，补充同义词/产品术语 |
+| LLM Reranker | `rag/reranker.py` | LLM 对候选文档打分（0-3分），精选最相关 Top-K |
+| RAG Service | `rag/rag_service.py` | 集成完整管线：安检 → Rewrite → 召回 → Rerank → 总结 → 事实校验 |
+
+## 📁 项目结构详解
+
+```
+smart_sweeper_agent/
+│
+├── app.py                       # 🖥️ Streamlit 入口：单/多Agent切换，对话持久化，护栏
+├── server.py                    # 🌐 FastAPI 服务：REST API + Swagger 文档
+│
+├── agent/                       # 🤖 Agent 层
+│   ├── smart_agent.py           #   单Agent模式：LangGraph create_react_agent
+│   ├── react_agent.py           #   ReactAgent：纯内置工具版（无Skill/MCP）
+│   ├── multi_agent.py           #   多Agent协作：Supervisor-Worker架构（4个专业Worker）
+│   ├── middleware.py             #   中间件：pre_model_hook、动态Prompt、工具收敛策略
+│   └── tools/
+│       └── agent_tools.py       #   7个内置工具：RAG检索、天气、定位、用户数据、报告生成
+│
+├── rag/                         # 📚 RAG 检索增强层
+│   ├── rag_service.py           #   RAG总结服务：Rewrite→Recall→Rerank→Summarize
+│   ├── vector_store.py          #   Chroma向量库：文档加载、分片、MD5去重、增量入库
+│   ├── query_rewriter.py        #   Query改写：LLM将口语查询转为检索友好格式
+│   └── reranker.py              #   LLM重排序：候选文档打分精选Top-K
+│
+├── model/
+│   └── factory.py               # 🧠 模型工厂：DashScope对话/嵌入模型懒加载单例
+│
+├── utils/                       # 🔧 工具层
+│   ├── guardrails.py            #   安全护栏：输入注入检测 + 输出事实校验（中英文）
+│   ├── conversation_store.py    #   对话持久化：Chroma存储、软删除、用户隔离、历史管理
+│   ├── skill_loader.py          #   Skill加载器：YAML frontmatter解析、关键词自动匹配
+│   ├── prompt_loader.py         #   提示词加载：从文件加载System/RAG/Report三种Prompt
+│   ├── config_handler.py        #   配置管理：Pydantic类型安全配置（Chroma/RAG/Agent）
+│   ├── amap_client.py           #   高德API客户端：IP定位 + 天气查询（tenacity重试）
+│   ├── file_handler.py          #   文件处理：TXT/PDF加载、MD5校验
+│   ├── path_tool.py             #   路径工具：项目根目录绝对路径解析
+│   ├── logger_handler.py        #   日志处理
+│   └── tracing.py               #   LangSmith追踪：自动捕获Agent调用链
+│
+├── mcp_servers/
+│   └── amap_server.py           # 🔌 MCP Server：高德地图IP定位 + 天气查询工具
+│
+├── tests/                       # 🧪 测试与评估
+│   ├── eval_metrics.py          #   LLM-as-Judge评估器：Faithfulness/Relevancy/Precision
+│   ├── run_eval.py              #   多模式测评：--quick(零成本) --full(工具调用) --rag(质量)
+│   ├── eval_dataset.yml         #   测评数据集：20条用例含期望Skill/工具/参考答案
+│   ├── test_rag_quality.py      #   RAG效果独立测试：逐步骤展示检索管线
+│   ├── test_rag_integration.py  #   RAG集成测试
+│   └── conftest.py              #   pytest配置
+│
+├── data/                        # 📊 知识库
+│   ├── 扫地机器人100问2.txt      #   通用FAQ
+│   ├── 扫拖一体机器人100问.txt   #   扫拖一体FAQ
+│   ├── 故障排除.txt              #   故障排查知识
+│   ├── 维护保养.txt              #   维护保养知识
+│   ├── 选购指南.txt              #   选购指南知识
+│   └── external/records.csv     #   用户月度使用记录
+│
+├── config/                      # ⚙️ 配置文件
+│   ├── chroma.yml               #   Chroma：collection名、分片参数、检索K值
+│   ├── rag.yml                  #   RAG模型：chat模型名、embedding模型名
+│   ├── agent.yml                #   Agent参数
+│   └── prompts.yml              #   提示词路径
+│
+├── prompts/                     # 📝 提示词模板
+│   ├── main_prompt.txt          #   主System Prompt
+│   ├── rag_summarize.txt        #   RAG总结Prompt
+│   └── report_prompt.txt        #   报告生成专用Prompt
+│
+├── skills/                      # 🎯 Skill模板
+│   ├── troubleshooting.md       #   故障排查（YAML frontmatter + 关键词触发）
+│   ├── purchase_guide.md        #   选购指南
+│   ├── accessory_recommend.md   #   配件推荐
+│   └── report_generation.md     #   报告生成
+│
+└── chroma_db/                   # 💾 Chroma持久化目录
+    ├── agent/                   #   知识库collection（embedding + metadata）
+    └── conversation_history/    #   对话历史collection（embedding + metadata）
 ```
 
 ## 📄 License
