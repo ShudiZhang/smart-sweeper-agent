@@ -12,6 +12,7 @@ import streamlit as st
 from agent.multi_agent import MultiAgentOrchestrator
 from agent.smart_agent import SmartAgent
 from utils.conversation_store import get_conversation_store
+from utils.guardrails import GuardAction, get_input_guard
 from utils.skill_loader import get_skill_manager
 from utils.tracing import init_tracing
 
@@ -213,6 +214,18 @@ def main():
     prompt = st.chat_input("请输入你的问题...")
 
     if prompt:
+        # ---- Input Guard: 安全检测 ----
+        ig = get_input_guard()
+        gr = ig.check(prompt)
+        if gr.action == GuardAction.BLOCK:
+            st.chat_message("user").write(prompt)
+            st.chat_message("assistant").write(f"🚫 {gr.reason}")
+            st.session_state["message"].append({"role": "user", "content": prompt})
+            st.session_state["message"].append(
+                {"role": "assistant", "content": f"🚫 {gr.reason}"}
+            )
+            st.stop()
+
         st.chat_message("user").write(prompt)
         st.session_state["message"].append({"role": "user", "content": prompt})
 

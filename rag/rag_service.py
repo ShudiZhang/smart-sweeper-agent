@@ -2,7 +2,8 @@
 RAG 总结服务：Query Rewriting → 混合检索 → LLM Rerank → 总结回复
 ========================================================================
 管线：
-  用户问题 → QueryRewriter 改写 → Chroma 多召回 → LLMReranker 重排序 → LLM 总结
+  用户问题 → InputGuard 安检 → QueryRewriter 改写 → Chroma 多召回
+  → LLMReranker 重排序 → LLM 总结 → OutputGuard 事实校验
 """
 
 from langchain_core.documents import Document
@@ -14,6 +15,7 @@ from rag.query_rewriter import get_query_rewriter
 from rag.reranker import get_reranker
 from rag.vector_store import VectorStoreService
 from utils.config_handler import get_config
+from utils.guardrails import GuardAction, get_input_guard, get_output_guard
 from utils.logger_handler import logger
 from utils.prompt_loader import load_rag_prompts
 
@@ -99,15 +101,22 @@ class RagSummarizeService:
         return ranked
 
     def rag_summarize(self, query: str) -> str:
-        """执行完整 RAG 管线：增强检索 → 总结回答
+        """执行完整 RAG 管线：安检 → 增强检索 → 总结 → 事实校验
 
         Args:
             query: 用户原始问题
 
         Returns:
-            基于检索资料的总结回答
+            基于检索资料的总结回答（已过安全护栏）
         """
-        # 增强检索
+        # ---- Input Guard: 输入安全检测 ----
+        input_guard = get_input_guard()
+        guard_result = input_guard.check(query)
+        if guard_result.action == GuardAction.BLOCK:
+            logger.warning(f"[RAG] 输入被拦截: {guard_result.reason}")
+            return f"抱歉，{guard_result.reason}。如有疑问请联系人工客服。"
+
+        # ---- 增强检索 ----
         context_docs = self.enhanced_retrieve(query)
 
         # 检索为空时降级，避免 LLM 基于空上下文编造答案
@@ -125,12 +134,26 @@ class RagSummarizeService:
                 f"| 参考元数据：{doc.metadata}\n"
             )
 
-        return self.chain.invoke(
+        answer = self.chain.invoke(
             {
                 "input": query,
                 "context": context,
             }
         )
+
+        # ---- Output Guard: 事实一致性校验 ----
+        output_guard = get_output_guard()
+        fact_check = output_guard.check(answer, context_docs)
+        if fact_check.action == GuardAction.WARN:
+            # 追加免责声明
+            answer += (
+                "\n\n⚠️ 温馨提示：以上部分信息可能需要进一步核实，"
+                "建议以产品说明书或官方客服为准。"
+            )
+        elif fact_check.action == GuardAction.BLOCK:
+            return "抱歉，当前无法生成可靠回答，请稍后重试或联系人工客服。"
+
+        return answer
 
 
 if __name__ == "__main__":

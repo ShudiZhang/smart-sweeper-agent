@@ -28,10 +28,16 @@ from pydantic import BaseModel, Field
 from agent.multi_agent import MultiAgentOrchestrator
 from agent.smart_agent import SmartAgent
 from utils.conversation_store import get_conversation_store
+from utils.guardrails import GuardAction, get_input_guard
 
 # ============================================================
 # 数据模型
 # ============================================================
+
+
+class HistoryMessage(BaseModel):
+    role: str = Field(..., description="user 或 assistant")
+    content: str = Field(..., description="消息内容")
 
 
 class ChatRequest(BaseModel):
@@ -39,7 +45,7 @@ class ChatRequest(BaseModel):
     user_token: str = Field(default="default", description="用户标识")
     session_id: str | None = Field(default=None, description="会话ID，不传则新建")
     mode: str = Field(default="single", description="Agent模式: single | multi")
-    history: list[dict] | None = Field(default=None, description="对话历史")
+    history: list[HistoryMessage] | None = Field(default=None, description="对话历史")
 
 
 class ChatResponse(BaseModel):
@@ -120,12 +126,25 @@ async def health():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     """非流式对话：发送问题，返回完整回答"""
+    # Input Guard
+    ig = get_input_guard()
+    gr = ig.check(req.query)
+    if gr.action == GuardAction.BLOCK:
+        raise HTTPException(status_code=400, detail=gr.reason)
+
     session_id = req.session_id or uuid.uuid4().hex[:12]
     agent = agent_manager.get_agent(req.mode)
 
+    # 转换 history 为 Agent 需要的 dict 格式
+    history_dicts = (
+        [{"role": h.role, "content": h.content} for h in req.history]
+        if req.history
+        else None
+    )
+
     # 执行 Agent
     chunks: list[str] = []
-    for chunk in agent.execute_stream(req.query, history=req.history):
+    for chunk in agent.execute_stream(req.query, history=history_dicts):
         chunks.append(chunk)
     answer = "".join(chunks).strip()
 
@@ -142,13 +161,26 @@ async def chat(req: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """流式对话：Server-Sent Events 实时推送回答"""
+    # Input Guard
+    ig = get_input_guard()
+    gr = ig.check(req.query)
+    if gr.action == GuardAction.BLOCK:
+        raise HTTPException(status_code=400, detail=gr.reason)
+
     session_id = req.session_id or uuid.uuid4().hex[:12]
     agent = agent_manager.get_agent(req.mode)
+
+    # 转换 history 为 Agent 需要的 dict 格式
+    history_dicts = (
+        [{"role": h.role, "content": h.content} for h in req.history]
+        if req.history
+        else None
+    )
 
     full_answer: list[str] = []
 
     async def generate():
-        for chunk in agent.execute_stream(req.query, history=req.history):
+        for chunk in agent.execute_stream(req.query, history=history_dicts):
             full_answer.append(chunk)
             yield f"data: {chunk}\n\n"
 
