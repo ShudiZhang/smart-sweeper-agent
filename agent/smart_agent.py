@@ -17,6 +17,8 @@ from agent.tools.agent_tools import (
     rag_summarize,
 )
 from model.factory import chat_model
+from rag.vector_store import VectorStoreService
+from utils.logger_handler import logger
 from utils.prompt_loader import load_system_prompts
 
 
@@ -29,6 +31,10 @@ class SmartAgent:
         active_skill: str | None = None,
         auto_match_skill: bool = True,
     ):
+        # 自动增量加载 data/ 中的新文档到向量库
+        logger.info("[SmartAgent] 检查知识库增量更新...")
+        VectorStoreService().load_document()
+
         tools = [
             rag_summarize,
             get_weather,

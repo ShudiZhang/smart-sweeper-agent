@@ -56,6 +56,16 @@ class VectorStoreService:
     def get_retriever(self):
         return self.vector_store.as_retriever(search_kwargs={"k": chroma_conf["k"]})
 
+    def get_all_documents(self) -> list[Document]:
+        """获取向量库中所有文档块，用于构建 BM25 等稀疏检索索引"""
+        result = self.vector_store.get(include=["documents", "metadatas"])
+        docs = []
+        for i, content in enumerate(result["documents"]):
+            metadata = result["metadatas"][i] if result["metadatas"] else {}
+            docs.append(Document(page_content=content, metadata=metadata))
+        logger.info(f"[VectorStore] 导出全部文档块，总数={len(docs)}")
+        return docs
+
     def load_document(self):
         """
         从数据文件夹内读取数据文件，转为向量存入向量库

@@ -1,8 +1,8 @@
 """
-RAG 总结服务：Query Rewriting → 混合检索 → LLM Rerank → 总结回复
-========================================================================
+RAG 总结服务：Query Rewriting → 混合检索（BM25+向量） → LLM Rerank → 总结回复
+====================================================================================
 管线：
-  用户问题 → InputGuard 安检 → QueryRewriter 改写 → Chroma 多召回
+  用户问题 → InputGuard 安检 → QueryRewriter 改写 → 混合检索（BM25+向量+RRF融合）
   → LLMReranker 重排序 → LLM 总结 → OutputGuard 事实校验
 """
 
@@ -11,6 +11,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 
 from model.factory import chat_model
+from rag.hybrid_retriever import HybridRetriever
 from rag.query_rewriter import get_query_rewriter
 from rag.reranker import get_reranker
 from rag.vector_store import VectorStoreService
@@ -34,6 +35,13 @@ class RagSummarizeService:
     def __init__(self):
         self.vector_store = VectorStoreService()
         self.retriever = self.vector_store.get_retriever()
+
+        # 混合检索器：BM25 + 向量 + RRF 融合
+        all_docs = self.vector_store.get_all_documents()
+        self.hybrid_retriever = HybridRetriever(
+            self.vector_store.vector_store, all_docs
+        )
+
         self.prompt_text = load_rag_prompts()
         self.prompt_template = PromptTemplate.from_template(self.prompt_text)
         self.model = chat_model
@@ -69,7 +77,7 @@ class RagSummarizeService:
         return self.retriever.invoke(query)
 
     def enhanced_retrieve(self, query: str) -> list[Document]:
-        """增强检索管线：Rewrite → 多召回 → Rerank
+        """增强检索管线：Rewrite → 混合检索（BM25+向量+RRF） → Rerank
 
         Args:
             query: 用户原始问题
@@ -80,15 +88,19 @@ class RagSummarizeService:
         # Step 1: Query Rewriting — 将口语化问题改写为检索友好的查询
         rewritten_query = self.rewriter.rewrite(query)
 
-        # Step 2: 多召回 — 扩大候选池（最终 K 的 3 倍）
-        candidates = self.vector_store.vector_store.similarity_search(
-            rewritten_query, k=self._candidate_k
+        # Step 2: 混合检索 — BM25 关键词 + 向量语义 → RRF 融合
+        candidates = self.hybrid_retriever.retrieve(
+            rewritten_query,
+            vector_k=self._candidate_k,
+            bm25_k=self._candidate_k,
         )
 
         if not candidates:
             # 改写后仍无结果，尝试原查询
-            candidates = self.vector_store.vector_store.similarity_search(
-                query, k=self._candidate_k
+            candidates = self.hybrid_retriever.retrieve(
+                query,
+                vector_k=self._candidate_k,
+                bm25_k=self._candidate_k,
             )
 
         if not candidates:

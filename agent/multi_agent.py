@@ -31,6 +31,7 @@ from agent.tools.agent_tools import (
     rag_summarize,
 )
 from model.factory import chat_model
+from rag.vector_store import VectorStoreService
 from utils.logger_handler import logger
 
 # ============================================================
@@ -154,6 +155,10 @@ class MultiAgentOrchestrator:
     """
 
     def __init__(self, mcp_tools: list | None = None):
+        # 自动增量加载 data/ 中的新文档到向量库
+        logger.info("[MultiAgent] 检查知识库增量更新...")
+        VectorStoreService().load_document()
+
         self._workers: dict[str, any] = {}
         self._build_workers(mcp_tools)
         self.graph = self._build_graph()
