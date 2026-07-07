@@ -15,7 +15,7 @@ class ChromaConfig(BaseModel):
     collection_name: str = "agent"
     persist_directory: str = "chroma_db"
     k: int = Field(default=3, ge=1, le=100, description="检索返回文档数")
-    chunk_size: int = Field(default=200, ge=50, le=5000, description="文本分片大小")
+    chunk_size: int = Field(default=600, ge=50, le=5000, description="文本分片大小")
     chunk_overlap: int = Field(default=20, ge=0, le=500, description="分片重叠大小")
     separators: list[str] = Field(
         default_factory=lambda: ["\n\n", "\n", ".", "!", "?", "。", "！", "？", " ", ""]
